@@ -1,0 +1,169 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Manjari singh"
+date: "2024-08-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+# Load the necessary libraries
+library(caret)
+library(randomForest)
+library(rpart)
+library(lattice)
+library(ggplot2)
+library(rpart.plot)
+library(RColorBrewer)
+```
+# Reading train and test data
+
+```{r}
+require(data.table)
+url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+train <- read.csv(url(url_train), na.strings = c("NA",""))
+```
+
+### Partitioning: Split the dataset into a 80% training and 20% probing dataset.
+```{r}
+set.seed(2345)
+inTrain <- createDataPartition(train$classe, p=0.8, list = FALSE)
+data_train <- train[inTrain, ]
+data_traintest <- train[-inTrain, ]
+```
+
+```{r}
+dim(data_train)
+```
+
+```{r}
+dim(data_traintest)
+```
+### Data cleaning: our data has both large number of NA values as well as near-zero-variance (NZV) variables. lets remove them in following steps
+```{r}
+nzv_var <- nearZeroVar(data_train)
+
+data_train <- data_train[ , -nzv_var]
+data_traintest  <- data_traintest [ , -nzv_var]
+```
+
+
+check dimension of clean data
+```{r}
+dim(data_train)
+dim(data_traintest)
+```
+Now we have only 121 columns (in contrast to 160 in original train_data)
+
+#### Remove variables that are mostly NA. A threshlod of 95 % is selected.
+```{r}
+na_var <- sapply(data_train, function(x) mean(is.na(x))) > 0.95
+data_train <- data_train[ , na_var == FALSE]
+data_traintest  <- data_traintest [ , na_var == FALSE]
+
+dim(data_train)
+dim(data_traintest)
+```
+we can see now the number of column is further reduced to 59(unlike 121 in previous step)
+
+#### columns 1 to 5 are identification variables only. lets remove them also
+```{r}
+data_train <- data_train[ , -(1:5)]
+data_traintest  <- data_traintest [ , -(1:5)]
+
+dim(data_train)
+dim(data_traintest)
+```
+this step further reduces columns to 54. The number of variables for the analysis has been reduced from the original 160 down to 54
+
+
+# prediction model on train data
+```{r}
+set.seed(1234)
+fit_dt <- rpart(classe ~ ., data = data_train, method="class")
+plot(fit_dt)
+```
+
+
+# model prediction on traintest data
+```{r}
+predict_dt <- predict(fit_dt, newdata = data_traintest, type="class")
+conf_matrix_dt <- confusionMatrix(predict_dt, factor(data_traintest$classe))
+conf_matrix_dt
+```
+The predictive accuracy of the decision tree model is at 72.85 %.
+
+Plot the predictive accuracy of the decision tree model.
+
+```{r}
+plot(conf_matrix_dt$table, col = conf_matrix_dt$byClass, 
+     main = paste("Decision Tree Model: Predictive Accuracy =",
+                  round(conf_matrix_dt$overall['Accuracy'], 4)))
+```
+
+# Random Forest Model 
+### training rf model
+```{r}
+set.seed(1234)
+ctrl_RF <- trainControl(method = "cv", number = 5)
+fit_RF  <- train(classe ~ ., data = data_train, method = "rf",
+                  trControl = ctrl_RF, verbose = FALSE)
+```
+### prediction on test data
+```{r}
+predict_RF <- predict(fit_RF, newdata = data_traintest)
+conf_matrix_RF <- confusionMatrix(predict_RF, factor(data_traintest$classe))
+conf_matrix_RF
+```
+
+
+# training Generalized Boosted Model (GBM)
+```{r}
+set.seed(1234)
+ctrl_GBM <- trainControl(method = "cv", number = 5)
+fit_GBM  <- train(classe ~ ., data = data_train, method = "gbm",
+                  trControl = ctrl_GBM, verbose = FALSE)
+```
+
+### prediction on test data
+```{r}
+predict_GBM <- predict(fit_GBM, newdata = data_traintest)
+conf_matrix_GBM <- confusionMatrix(predict_GBM, factor(data_traintest$classe))
+conf_matrix_GBM
+```
+The predictive accuracy of the GBM model is 98.85 %
+
+
+#apply best model to the test data
+The GBM is selected and applied to make predictions on the 20 data points from the original testing dataset.  
+
+# Reading test data
+```{r}
+require(data.table)
+url_test <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+test <- read.csv(url(url_test), na.strings = c("NA", ""))
+```
+
+```{r}
+predict_test <- as.data.frame(predict(fit_GBM, newdata = test))
+predict_test
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
